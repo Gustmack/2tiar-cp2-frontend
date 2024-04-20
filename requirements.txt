@@ -1,4 +1,4 @@
-matplotli
+matplotlib
 pandas
 streamlit
 lightgbm
