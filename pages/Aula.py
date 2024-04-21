@@ -1,93 +1,88 @@
-#!pip install streamlit
 import streamlit as st
 import pandas as pd
-import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
 import pickle
 from pycaret.classification import *
 
-st.set_page_config( page_title = 'Simulador - Case Ifood',
-                    page_icon = './images/logo_fiap.png',
-                    layout = 'wide',
-                    initial_sidebar_state = 'expanded')
+# Configuração inicial da página
+st.set_page_config(page_title='Simulador - Case Ifood',
+                   page_icon='./images/logo_fiap.png',
+                   layout='wide',
+                   initial_sidebar_state='expanded')
 
 st.title('Simulador - Conversão de Vendas')
-with st.expander('Descrição do App', expanded = False):
-    var_test = 5
-    # st.write(var_test)
-    # st.markdown(var_test)
-    st.write('O objetivo principal deste app .....')
 
+# Descrição do App
+with st.expander('Descrição do App', expanded=False):
+    st.write('O objetivo principal deste app é .....')
+
+# Sidebar com informações e escolha do tipo de entrada
 with st.sidebar:
     c1, c2 = st.columns(2)
-    c1.image('./images/logo_fiap.png', width = 100)
+    c1.image('./images/logo_fiap.png', width=100)
     c2.write('')
     c2.subheader('Auto ML - Fiap [v1]')
 
-    # database = st.selectbox('Fonte dos dados de entrada (X):', ('CSV', 'Online'))
     database = st.radio('Fonte dos dados de entrada (X):', ('CSV', 'Online'))
 
+# Abas principais
+tab1, tab2 = st.tabs(["Predições", "Análise Detalhada"])
+
+with tab1:
     if database == 'CSV':
-        st.info('Upload do CSV')
         file = st.file_uploader('Selecione o arquivo CSV', type='csv')
+        if file:
+            Xtest = pd.read_csv(file)
+            mdl_rf = load_model('./pickle/pickle_rf_pycaret')
+            ypred = predict_model(mdl_rf, data=Xtest, raw_score=True)
 
-#Tela principal
-if database == 'CSV':
-    if file:
-        #carregamento do CSV
-        Xtest = pd.read_csv(file)
+            with st.expander('Visualizar CSV carregado:', expanded=False):
+                qtd_linhas = st.slider('Visualizar quantas linhas do CSV:',
+                                       min_value=5,
+                                       max_value=Xtest.shape[0],
+                                       step=10,
+                                       value=5)
+                st.dataframe(Xtest.head(qtd_linhas))
 
-        #carregamento / instanciamento do modelo pkl
-        mdl_rf = load_model('./pickle/pickle_rf_pycaret')
+            with st.expander('Visualizar Predições:', expanded=True):
+                threshold = st.slider('Threshold (ponto de corte para considerar predição como True)',
+                                      min_value=0.0,
+                                      max_value=1.0,
+                                      step=0.1,
+                                      value=0.5)
+                Xtest['Predicted_Class'] = (ypred['prediction_score_1'] > threshold).astype(int)
+                qtd_true = Xtest[Xtest['Predicted_Class'] == 1].shape[0]
+                qtd_false = Xtest[Xtest['Predicted_Class'] == 0].shape[0]
 
-        #predict do modelo
-        ypred = predict_model(mdl_rf, data = Xtest, raw_score = True)
+                st.metric('Qtd clientes True', value=qtd_true)
+                st.metric('Qtd clientes False', value=qtd_false)
 
-        with st.expander('Visualizar CSV carregado:', expanded = False):
-            c1, _ = st.columns([2,4])
-            qtd_linhas = c1.slider('Visualizar quantas linhas do CSV:', 
-                                    min_value = 5, 
-                                    max_value = Xtest.shape[0], 
-                                    step = 10,
-                                    value = 5)
-            st.dataframe(Xtest.head(qtd_linhas))
+                def color_pred(val):
+                    color = 'olive' if val > threshold else 'orangered'
+                    return f'background-color: {color}'
 
-        with st.expander('Visualizar Predições:', expanded = True):
-            c1, _, c2, c3 = st.columns([2,.5,1,1])
-            treshold = c1.slider('Treshold (ponto de corte para considerar predição como True)',
-                                min_value = 0.0,
-                                max_value = 1.0,
-                                step = .1,
-                                value = .5)
-            qtd_true = ypred.loc[ypred['prediction_score_1'] > treshold].shape[0]
+                df_view = pd.DataFrame({'prediction_score_1': ypred['prediction_score_1'], 'Predicted_Class': Xtest['Predicted_Class']})
+                st.dataframe(df_view.style.applymap(color_pred, subset=['prediction_score_1']))
 
-            c2.metric('Qtd clientes True', value = qtd_true)
-            c3.metric('Qtd clientes False', value = len(ypred) - qtd_true)
-            
-            def color_pred(val):
-                color = 'olive' if val > treshold else 'orangered'
-                return f'background-color: {color}'
+                csv = df_view.to_csv(sep=';', decimal=',', index=True)
+                st.download_button(label='Download CSV',
+                                   data=csv,
+                                   file_name='Predicoes.csv',
+                                   mime='text/csv')
+        else:
+            st.warning('Arquivo CSV não foi carregado')
 
-            tipo_view = st.radio('', ('Completo', 'Apenas predições'))
-            if tipo_view == 'Completo':
-                df_view = ypred.copy()
-            else:
-                df_view = pd.DataFrame(ypred.iloc[:,-1].copy())
+with tab2:
+    if database == 'CSV' and file:
+        st.header("Análise Detalhada das Características dos Clientes")
+        threshold = st.slider("Ajuste o Threshold para Análise", min_value=0.0, max_value=1.0, value=0.5, step=0.01)
+        Xtest['Predicted_Class'] = (ypred['prediction_score_1'] > threshold).astype(int)
 
-            st.dataframe(df_view.style.applymap(color_pred, subset = ['prediction_score_1']))
-
-            csv = df_view.to_csv(sep = ';', decimal = ',', index = True)
-            st.markdown(f'Shape do CSV a ser baixado: {df_view.shape}')
-            st.download_button(label = 'Download CSV',
-                            data = csv,
-                            file_name = 'Predicoes.csv',
-                            mime = 'text/csv')
-
-        
+        features_to_plot = Xtest.columns.difference(['Predicted_Class', 'prediction_score_1'])
+        for feature in features_to_plot:
+            fig, ax = plt.subplots()
+            sns.boxplot(data=Xtest, x='Predicted_Class', y=feature, ax=ax)
+            st.pyplot(fig)
     else:
-        st.warning('Arquivo CSV não foi carregado')
-        # st.info('Arquivo CSV não foi carregado')
-        # st.error('Arquivo CSV não foi carregado')
-        # st.success('Arquivo CSV não foi carregado')
-
-else:
-    st.error('Esta opção será desenvolvida no Checkpoint #2 da disciplina')
+        st.error('Nenhuma predição disponível para análise. Por favor, carregue e processe um CSV primeiro.')
